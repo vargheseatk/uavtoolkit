@@ -159,6 +159,12 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:
 .log .ok{color:var(--good)} .log .err{color:var(--bad)} .log .dim{color:var(--faint)}
 .log b{font-weight:600}
 
+#scriptCard.flag{animation:flagpulse 1.3s ease-in-out 2}
+@keyframes flagpulse{
+  0%,100%{box-shadow:0 0 0 0 transparent}
+  50%{box-shadow:0 0 0 3px var(--accent)}
+}
+
 /* ---------- modal ---------- */
 .modal-back{
   position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;
@@ -395,6 +401,28 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
     </div>
   </section>
 
+  <section class="card" id="scriptCard">
+    <h2>Not a Shopify store?</h2>
+    <div class="body">
+      <p style="margin:0 0 10px;font-size:13px;line-height:1.5">
+        This tab can only read Shopify stores — that's a browser limitation (see the notes
+        below), not a missing feature. For SHOPLINE stores, Cloudflare-protected stores, or
+        anything else, download the same importer as a script and run it on your PC.
+      </p>
+      <div class="actions">
+        <button id="btn-dl-script" class="primary">Download script (.zip)</button>
+      </div>
+      <ol style="margin:12px 0 0;padding-left:20px;font-size:12.5px;line-height:1.7;color:var(--muted)">
+        <li>Unzip it anywhere.</li>
+        <li>One-time setup — open a terminal in that folder and run
+          <code>pip install -r requirements.txt</code></li>
+        <li>Run it: <code>python import_products.py "https://the-product-url"</code></li>
+        <li>It writes <code>output/images/</code> and <code>output/woocommerce_import.csv</code>
+          — same format, same rules as this tab.</li>
+      </ol>
+    </div>
+  </section>
+
   <section class="card" id="resultCard" hidden>
     <h2>3 · Result</h2>
     <div class="body">
@@ -424,9 +452,10 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
     the description). <b>Every outbound link is stripped except YouTube.</b>
     <br><br>
     <strong>Limits, honestly</strong> — a browser can only read stores that allow cross-origin
-    requests, which covers <b>Shopify</b> (tested working, images included). Non-Shopify stores —
-    SHOPLINE, and anything relying on the JSON-LD fallback — are blocked by the browser's
-    same-origin policy and still need <code>import_products.py</code> locally. Saving straight
+    requests, which covers <b>Shopify</b> (tested working, images included). Non-Shopify stores
+    — SHOPLINE, and anything relying on the JSON-LD fallback — block that by design; no page can
+    read around it. Use the <b>Download script</b> card above for those; it's the same tool with
+    the same output format, just running on your PC instead of in the browser. Saving straight
     into a folder needs Chrome or Edge; other browsers get a .zip instead.
   </footer>
 </div><!-- /tab-listings -->
@@ -900,8 +929,11 @@ target margin, so one category can price at 45% while everything else follows th
 <p>Paste product links, type your store name, pick a folder, press <b>Fetch products</b>.
 You get a WooCommerce CSV and every product image renamed with your store name on the end.
 Products arrive as <b>drafts</b> with no price, so nothing goes live by accident.</p>
-<p>It reads Shopify stores. Other shop platforms block browsers from reading their pages, so
-those still need the Python script on your PC.</p>
+<p>It reads <b>Shopify</b> stores directly in the browser. Other shop platforms (SHOPLINE,
+Cloudflare-protected stores) don't allow that, by design — no page can read around it. For
+those, click <b>Download script (.zip)</b> on that tab: it's the exact same tool, running on
+your PC instead, with three plain-English steps to set it up. If you paste a link the browser
+can't reach, that card lights up on its own.</p>
 `;
 $("#infoBody").innerHTML = INFO;
 const showInfo = on => { $("#infoBack").hidden = !on;

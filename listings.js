@@ -16,7 +16,7 @@
 (function(){
 "use strict";
 
-const { $, dl, csv, flash, zipStore } = window.APP;
+const { $, dl, stamp, csv, flash, zipStore } = window.APP;
 
 /* Shopify "options" that aren't real variations — warehouse pickers etc. */
 const JUNK_OPTIONS = new Set(["title","ship_from","ship from","ships from","shipping",
@@ -60,8 +60,8 @@ async function fetchProduct(rawUrl){
   try{
     res = await fetch(url + ".json", { headers:{ "Accept":"application/json" } });
   }catch(e){
-    throw new Error("the browser blocked this request (the store doesn't allow cross-origin " +
-                    "reads). Use import_products.py for this store.");
+    throw new Error("the browser blocked this request — this store doesn't allow " +
+                    "cross-origin reads. Use the Download script card below for this one.");
   }
   if(!res.ok) throw new Error("HTTP " + res.status + " — not a Shopify product URL?");
 
@@ -318,6 +318,29 @@ function log(msg, cls){
   el.scrollTop = el.scrollHeight;
 }
 
+/* ---------- the Python script, for stores the browser can't read ---------- */
+$("#btn-dl-script").addEventListener("click", async () => {
+  const btn = $("#btn-dl-script");
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = "Packaging…";
+  try{
+    const names = ["tools/import_products.py", "tools/requirements.txt", "tools/README.md"];
+    const parts = await Promise.all(names.map(async n => {
+      const r = await fetch(n);
+      if(!r.ok) throw new Error(n + " — HTTP " + r.status);
+      return { name:"uavstore-import/" + n.split("/")[1], data:await r.text() };
+    }));
+    dl(zipStore(parts), "uavstore-import-script-" + stamp() + ".zip", "application/zip");
+    flash("#btn-dl-script", "Downloaded ✓");
+  }catch(e){
+    alert("Couldn't package the script: " + e.message +
+          "\n\nThe files should be at tools/ next to this page — if you're running the app " +
+          "from a single downloaded index.html rather than the full folder, they won't be there.");
+  }finally{
+    btn.disabled = false; if(btn.textContent === "Packaging…") btn.textContent = old;
+  }
+});
+
 $("#btn-folder").addEventListener("click", async () => {
   if(!window.showDirectoryPicker){
     alert("Your browser can't save straight into a folder — that needs Chrome or Edge.\n\n" +
@@ -351,7 +374,7 @@ $("#btn-scrape").addEventListener("click", async () => {
   $("#resultCard").hidden = true;
 
   const allRows = [], allFiles = [];
-  let failed = 0;
+  let failed = 0, blocked = 0;
 
   for(const url of urls){
     log(`\nFetching: ${url}`);
@@ -361,11 +384,18 @@ $("#btn-scrape").addEventListener("click", async () => {
       allFiles.push(...files);
     }catch(e){
       failed++;
+      if(/cross-origin/.test(e.message)) blocked++;
       log(`  ! error: ${e.message}`, "err");
     }
   }
 
   btn.disabled = false; btn.textContent = "Fetch products";
+
+  if(blocked){
+    $("#scriptCard").classList.add("flag");
+    $("#scriptCard").scrollIntoView({ behavior:"smooth", block:"nearest" });
+    setTimeout(() => $("#scriptCard").classList.remove("flag"), 2600);
+  }
 
   if(!allRows.length){ log("\nNothing to write.", "err"); return; }
 

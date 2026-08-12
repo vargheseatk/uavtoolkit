@@ -1,0 +1,3 @@
+# Install once:  pip install -r requirements.txt
+curl_cffi   # browser-TLS impersonation -> gets past Cloudflare "403 Forbidden"
+certifi     # up-to-date CA bundle (some Windows Python installs ship a stale one)

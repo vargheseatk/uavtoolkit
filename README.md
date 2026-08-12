@@ -141,11 +141,22 @@ Images are renamed `Brand-Product-Name_yourstore_NN.ext`, primary image unnumber
 | | |
 |---|---|
 | **Shopify stores** | ✅ Works, images included. Tested live end to end. |
-| **SHOPLINE, and the JSON-LD fallback** | ❌ Blocked. Those servers don't send CORS headers, so the browser refuses to read them — nothing the page can do about it. Keep using `import_products.py` for those. |
+| **SHOPLINE, Cloudflare-protected stores, the JSON-LD fallback** | ❌ Blocked. Those servers don't send CORS headers, so the browser refuses to read them — nothing the page can do about it. |
 | **Saving into a folder** | Chrome/Edge only (File System Access API). Other browsers get a `.zip` with the same contents. |
 
 The Cloudflare problem that forced `curl_cffi` in the Python tool doesn't exist here — the
 request comes from a real browser, so it looks legitimate by definition.
+
+### Everything else: the same tool, as a script
+
+The Listings tab has a **Download script (.zip)** button — it packages `tools/import_products.py`,
+its `requirements.txt`, and a walkthrough README, live from this repo (so it's never out of
+sync). Unzip it, `pip install -r requirements.txt` once, then
+`python import_products.py "<url>"`. Same output format, same rules, so its `output/images/`
+and `output/woocommerce_import.csv` drop into the same WooCommerce import flow.
+
+If you paste a URL the browser can't reach, the card lights up on its own rather than leaving
+you to find it.
 
 ## Differences from the spreadsheet
 
