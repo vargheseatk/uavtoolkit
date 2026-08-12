@@ -27,6 +27,9 @@
   }
 }
 *{box-sizing:border-box}
+/* Must outrank any author `display` rule, or the hidden attribute does nothing.
+   The modal and the tier fields both set display in CSS. */
+[hidden]{display:none !important}
 html,body{margin:0;padding:0}
 body{
   background:var(--bg); color:var(--ink);
@@ -187,9 +190,20 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:
   background:var(--panel-2);border-left:3px solid var(--accent);border-radius:0 6px 6px 0;
   padding:10px 12px;margin:10px 0;font-size:12.5px;
 }
-.modal-body table{font-size:12.5px;margin:8px 0 12px}
-.modal-body th,.modal-body td{border-bottom:1px solid var(--line-soft);padding:5px 8px}
-.modal-body th{position:static;background:transparent}
+/* the data-table rules above set nowrap + right-align; undo both in here */
+.modal-body table{width:100%;font-size:12.5px;margin:8px 0 14px;border-collapse:collapse;
+  table-layout:fixed}
+.modal-body th,.modal-body td{
+  border-bottom:1px solid var(--line-soft);padding:7px 10px 7px 0;
+  text-align:left;white-space:normal;overflow-wrap:anywhere;vertical-align:top;
+}
+.modal-body th{
+  position:static;background:transparent;font-size:11px;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.05em;
+}
+.modal-body td:first-child,.modal-body th:first-child{width:30%;padding-right:14px}
+.modal-body ol{margin:0 0 10px;padding-left:20px}
+.modal-body ol li{margin-bottom:5px}
 
 footer{margin-top:22px;font-size:11.5px;color:var(--faint);line-height:1.6}
 footer code{font-family:var(--mono);font-size:11px;background:var(--panel);padding:1px 5px;border-radius:4px;border:1px solid var(--line-soft)}
