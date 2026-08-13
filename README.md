@@ -38,20 +38,32 @@ spreadsheet did.
 
 | Rate | Formula |
 |---|---|
-| Effective FX | amount debited ÷ invoice USD |
+| Effective FX | amount debited ÷ (invoice USD + PayPal/gateway fee USD) |
+| PayPal fee per $ | (PayPal/gateway fee USD × effective FX) ÷ invoice USD |
 | Freight + duty per $ | (freight + customs) ÷ invoice USD |
 | ITC per $ | import IGST ÷ invoice USD |
 
 Then, per unit:
 
 ```
-landed        = cost$ × (FX + freight/$ + ITC/$)
+landed        = cost$ × FX + cost$ × PayPal-fee/$ + cost$ × freight/$ + cost$ × ITC/$
 suggested     = roundUp( landed ÷ (1 − target margin), ₹100 ) − ₹1
 output GST    = price − price ÷ (1 + GST rate)
 net GST       = output GST − ITC          # import IGST offsets the output liability
 P/L           = price − net GST − landed
 margin        = P/L ÷ price
 ```
+
+**Why the fee gets its own line, not a multiplier folded into FX:** the amount your bank
+actually debited paid for the goods *and* the gateway's cut, so dividing by goods-only dollars
+would inflate the exchange rate to quietly cover a cost that isn't FX. The fix isn't just
+lowering the FX rate, though — the fee still has to be charged back to the goods, and doing
+that by multiplying the *already-corrected* FX rate by `(1 + fee share)` exactly undoes the
+correction: work the algebra through and it collapses back to `debited ÷ invoice USD`, the
+naive number, as if the fee field did nothing. It's charged back as its own additive line
+instead — the same way freight already is — so it shows up as a real, visible number per SKU
+rather than an invisible wash. With the fee at $0 (the default), that line is $0 and every
+other number is identical to a shipment paid by plain bank transfer.
 
 Rounding up to ₹100 and subtracting ₹1 is what produces the ₹399 / ₹999 / ₹1,499 price
 points. Both numbers are configurable.
@@ -72,10 +84,11 @@ case don't matter, and common aliases are recognised (`Product Code`, `Quantity`
 | `qty` | **required** | Units on this shipment. Drives how freight is allocated. |
 | `cost_usd` | **required** | Unit cost on the supplier invoice. Rows with a blank or zero cost are skipped. |
 | `name` | optional | Falls back to the SKU. |
-| `connector` | optional | Or any variant label. |
+| `connector` | optional | Which plug the battery uses (XT30, XT60, A30…), often colour-coded for HV vs standard cells. Descriptive only — doesn't affect cost, price, or margin, just lets two similar SKUs be told apart at a glance. |
 | `target_margin_pct` | optional | Prices *this* row at its own margin. **Blank = follow the slider.** |
 | `gst_pct` | optional | Per-row GST. Blank = the global rate. |
 | `price` | optional | A hard price. Blank = use the suggested price. |
+| `remarks` | optional | Free text — note an assumption against the row it applies to. |
 
 Import replaces the whole list, and shows you what it's about to do first — how many rows,
 what it's skipping and why, any duplicate SKUs.
@@ -90,8 +103,8 @@ the table shows those columns.
 
 | Button | What you get |
 |---|---|
-| **SKU + Price ↓** | `price-list-YYYY-MM-DD.csv` — two columns, `sku,price`. The file you run at the store. |
-| **Copy** | The same thing as `SKU⇥price` on the clipboard, for pasting straight into a sheet. |
+| **SKU + Price ↓** | `price-list-YYYY-MM-DD.csv` — `sku,name,price`. The name is for you to eyeball; the store matches on SKU. This is the file you run at the store. |
+| **Copy** | The same three columns as `SKU⇥Name⇥Price`, on the clipboard, for pasting straight into a sheet. |
 | **Excel backup ↓** | `landing-cost-YYYY-MM-DD.xlsx` — see below. |
 | **Full CSV ↓** | Every computed column, for your own analysis. |
 
@@ -168,6 +181,12 @@ you to find it.
   profit tile here, and it works.
 - Customs duty was allocated through the same per-USD rate as freight, so the two share one
   "freight + duty" column. Enter them separately; they are allocated identically.
+- The sheet had an unlabeled "Payal 4.4" cell that fed the landed total but was always 0 in
+  the sample shipment, so its intent was unclear and it was dropped from the first version of
+  this app. It was PayPal's transaction fee. It's back as an explicit **PayPal / gateway fee**
+  field — see *The model* above for how it's applied, since the original cell's formula
+  wouldn't have handled a non-zero fee correctly (it mixed the fee into an already-computed
+  FX rate rather than including it in the FX calculation itself).
 
 ---
 

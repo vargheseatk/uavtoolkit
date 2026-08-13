@@ -261,9 +261,13 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
           <input type="text" id="totalUsd" readonly tabindex="-1">
           <div class="hint">Σ cost × qty, from the table</div></label>
 
+        <label class="f"><span>PayPal / gateway fee <b>($)</b></span>
+          <input type="number" id="paypalFeeUsd" step="0.01" min="0">
+          <div class="hint">Extra USD the gateway charged, on top of the goods</div></label>
+
         <label class="f"><span>Amount debited <b>(₹)</b></span>
           <input type="number" id="inrDebited" step="1">
-          <div class="hint">What the bank actually took</div></label>
+          <div class="hint">What the bank actually took, for goods + gateway fee</div></label>
 
         <label class="f"><span>Freight / shipping <b>(₹)</b></span>
           <input type="number" id="shipping" step="1"></label>
@@ -281,6 +285,7 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
 
       <dl class="derived">
         <div><dt>Effective FX</dt><dd id="d-fx"></dd></div>
+        <div><dt>PayPal fee / $</dt><dd id="d-paypal"></dd></div>
         <div><dt>Freight+duty / $</dt><dd id="d-freight"></dd></div>
         <div><dt>ITC / $</dt><dd id="d-itc"></dd></div>
         <div><dt>Total landed</dt><dd id="d-landed"></dd></div>
@@ -612,6 +617,7 @@ const SEED_PRODUCTS = [
 ];
 
 const defaultState = () => ({
+  paypalFeeUsd: 0,
   inrDebited: 129577,
   shipping: 30500,
   customs: 0,
@@ -624,7 +630,7 @@ const defaultState = () => ({
   showTiers: false,
   showPerRow: false,
   products: SEED_PRODUCTS.map(([name, sku, conn, qty, cost]) =>
-    ({ name, sku, conn, qty, cost, price: null, targetPct: null, gstPct: null }))
+    ({ name, sku, conn, qty, cost, price: null, targetPct: null, gstPct: null, remarks: "" }))
 });
 
 const KEY = "landing-calc-v1";
@@ -652,9 +658,18 @@ function save(){
 function compute(){
   const p = state.products;
   const totalUsd = p.reduce((s, r) => s + num(r.cost) * num(r.qty), 0);
+  const paypalFeeUsd = num(state.paypalFeeUsd);
 
-  // per-USD allocation rates; guard the zero-invoice case
-  const fx        = totalUsd ? num(state.inrDebited) / totalUsd : 0;
+  // The amount debited pays for the goods AND the gateway's USD-denominated
+  // fee, so the true exchange rate divides by both, not the goods alone —
+  // otherwise the fee gets silently absorbed into an inflated "FX rate".
+  // The fee itself is then converted to INR at that true rate and spread
+  // across SKUs by value, same as freight — as its own visible column,
+  // not folded back into the FX figure (which would exactly cancel out
+  // and make the field invisible: allocating 100% of a cost back onto the
+  // same base you divided it out of is a no-op, whatever that cost is).
+  const fx        = totalUsd ? num(state.inrDebited) / (totalUsd + paypalFeeUsd) : 0;
+  const paypalPU  = totalUsd ? (paypalFeeUsd * fx) / totalUsd : 0;
   const freightPU = totalUsd ? (num(state.shipping) + num(state.customs)) / totalUsd : 0;
   const itcPU     = totalUsd ? num(state.igst) / totalUsd : 0;
 
@@ -666,9 +681,10 @@ function compute(){
   const rows = p.map((r, i) => {
     const cost = num(r.cost), qty = num(r.qty);
     const inr = cost * fx;
+    const paypal = cost * paypalPU;
     const duty = cost * freightPU;
     const itc = cost * itcPU;
-    const landed = inr + duty + itc;
+    const landed = inr + paypal + duty + itc;
 
     // a row may carry its own target margin / GST rate; blank falls back to the globals
     const tgt   = r.targetPct == null ? target : num(r.targetPct) / 100;
@@ -686,7 +702,7 @@ function compute(){
 
     const tiers = state.tiers.map(t => landed * (1 + num(t) / 100));
 
-    return { i, ...r, cost, qty, inr, duty, itc, landed, suggested, price,
+    return { i, ...r, cost, qty, inr, paypal, duty, itc, landed, suggested, price,
              overridden: r.price != null, tgt, gstR, outputGst, netGst, pl, margin, tiers };
   });
 
@@ -699,8 +715,7 @@ function compute(){
   }), { qty:0, landed:0, rev:0, gst:0, pl:0 });
   totals.margin = totals.rev ? totals.pl / totals.rev : 0;
 
-  return { rows, totals, totalUsd, fx, freightPU, itcPU,
-           landedTotal: num(state.inrDebited) + num(state.shipping) + num(state.customs) + num(state.igst) };
+  return { rows, totals, totalUsd, fx, paypalPU, freightPU, itcPU };
 }
 
 /* ------------------------------------------------------------------ *
@@ -730,6 +745,7 @@ const COLS = [
   { k:"qty",   h:"Qty",       edit:true },
   { k:"cost",  h:"Cost $",    edit:true, sep:true },
   { k:"inr",   h:"FX ₹" },
+  { k:"paypal",h:"PayPal ₹" },
   { k:"duty",  h:"Freight+duty" },
   { k:"itc",   h:"ITC" },
   { k:"landed",h:"Landed", strong:true },
@@ -741,6 +757,7 @@ const COLS = [
   { k:"pl",    h:"P/L unit" },
   { k:"margin",h:"Margin" },
   { k:"plq",   h:"P/L × qty" },
+  { k:"remarks", h:"Remarks", cls:"l dim", sep:true },
   { k:"del",   h:"" },
 ];
 
@@ -749,15 +766,16 @@ function render(){
   const target = num(state.targetMargin) / 100;
   const q = $("#search").value.trim().toLowerCase();
   const visible = q
-    ? m.rows.filter(r => (r.name + " " + r.sku + " " + r.conn).toLowerCase().includes(q))
+    ? m.rows.filter(r => (r.name + " " + r.sku + " " + r.conn + " " + (r.remarks||"")).toLowerCase().includes(q))
     : m.rows;
 
   // --- assumption + derived readouts
   $("#totalUsd").value = "$" + m.totalUsd.toFixed(2);
   $("#d-fx").textContent      = "₹" + m.fx.toFixed(2);
+  $("#d-paypal").textContent  = "₹" + m.paypalPU.toFixed(2);
   $("#d-freight").textContent = "₹" + m.freightPU.toFixed(2);
   $("#d-itc").textContent     = "₹" + m.itcPU.toFixed(2);
-  $("#d-landed").textContent  = money(m.landedTotal);
+  $("#d-landed").textContent  = money(m.totals.landed);
 
   $("#marginOut").textContent = num(state.targetMargin).toFixed(1).replace(/\.0$/, "") + "%";
   $("#t-cost").textContent   = money(m.totals.landed);
@@ -789,6 +807,7 @@ function render(){
         case "qty":  return `<td class="num editable"><input type="number" step="1" min="0" data-i="${r.i}" data-f="qty" value="${r.qty}" style="width:52px"></td>`;
         case "cost": return `<td class="num editable${sep}"><input type="number" step="0.01" min="0" data-i="${r.i}" data-f="cost" value="${r.cost}" style="width:64px"></td>`;
         case "inr":    return `<td class="num dim">${money2(r.inr)}</td>`;
+        case "paypal": return `<td class="num dim">${money2(r.paypal)}</td>`;
         case "duty":   return `<td class="num dim">${money2(r.duty)}</td>`;
         case "itc":    return `<td class="num dim">${money2(r.itc)}</td>`;
         case "landed": return `<td class="num" style="font-weight:650">${money2(r.landed)}</td>`;
@@ -812,6 +831,9 @@ function render(){
         case "pl":     return `<td class="num" style="color:${r.pl < 0 ? "var(--bad)" : "inherit"}">${money2(r.pl)}</td>`;
         case "margin": return `<td class="num">${marginPill(r.margin, r.tgt)}</td>`;
         case "plq":    return `<td class="num" style="font-weight:600;color:${r.pl < 0 ? "var(--bad)" : "var(--good)"}">${money(r.pl * r.qty)}</td>`;
+        case "remarks":
+          return `<td class="l${sep}"><input type="text" data-i="${r.i}" data-f="remarks" value="${esc(r.remarks || "")}"
+                    placeholder="e.g. assumed qty" style="text-align:left;width:100%;min-width:130px"></td>`;
         case "del":    return `<td><button class="reset-x" data-del="${r.i}" title="Delete row" style="color:var(--faint)">✕</button></td>`;
       }
       return "<td></td>";
@@ -840,7 +862,7 @@ function render(){
 /* ------------------------------------------------------------------ *
  * Wiring
  * ------------------------------------------------------------------ */
-const SIMPLE = ["inrDebited","shipping","customs","igst","gstRate","roundTo","charmOff"];
+const SIMPLE = ["paypalFeeUsd","inrDebited","shipping","customs","igst","gstRate","roundTo","charmOff"];
 
 function syncInputs(){
   SIMPLE.forEach(k => $("#" + k).value = state[k]);
@@ -883,7 +905,7 @@ $("#tbody").addEventListener("input", e => {
   if(!t.dataset.f) return;
   const r = state.products[+t.dataset.i];
   const f = t.dataset.f;
-  if(f === "name") r.name = t.value;
+  if(f === "name" || f === "remarks") r[f] = t.value;
   else if(f === "price" || f === "targetPct" || f === "gstPct")
     r[f] = t.value === "" ? null : parseFloat(t.value);   // blank = fall back to global
   else r[f] = t.value === "" ? 0 : parseFloat(t.value);
@@ -918,7 +940,7 @@ $("#tbody").addEventListener("click", e => {
 
 $("#btn-add").addEventListener("click", () => {
   state.products.push({ name:"New product", sku:"", conn:"", qty:1, cost:0,
-                        price:null, targetPct:null, gstPct:null });
+                        price:null, targetPct:null, gstPct:null, remarks:"" });
   $("#search").value = "";
   render(); save();
   const last = document.querySelector("#tbody tr:last-child input");
@@ -938,7 +960,7 @@ $("#btn-clear").addEventListener("click", () => {
                  roundTo:state.roundTo, charmOff:state.charmOff, tiers:state.tiers,
                  showTiers:state.showTiers, showPerRow:state.showPerRow };
   state = Object.assign(defaultState(), keep,
-    { inrDebited:0, shipping:0, customs:0, igst:0, products:[] });
+    { paypalFeeUsd:0, inrDebited:0, shipping:0, customs:0, igst:0, products:[] });
   $("#search").value = "";
   syncInputs(); render(); save();
 });
@@ -969,10 +991,19 @@ the freight, and the customs duty. That real number is the <b>landed cost</b>.</
 exchange rate is ₹99.83 per dollar — not the rate on Google. Freight of ₹30,500 across
 $1,298 adds ₹23.50 per dollar. So a $2 battery lands at 2 × (99.83 + 23.50) = <b>₹246.65</b>.</div>
 
+<h3>PayPal / gateway fees</h3>
+<p>If you paid through PayPal, Wise, or a card gateway, they usually take an extra USD-priced
+cut on top of the goods — the invoice says $1,298, but the gateway actually charged you
+$1,298 <em>plus</em> its fee, and that combined dollar amount is what your bank converted to
+INR. Put that fee in the <b>PayPal / gateway fee</b> box and the app corrects for it two ways:
+the real exchange rate is worked out against the <em>true</em> dollar total (goods + fee), not
+goods alone, and each SKU is charged its own proportional share of the fee, the same way
+freight is split by value. Leave it at 0 if you paid by bank transfer with no such fee.</p>
+
 <h3>Pricing — using it</h3>
 <ul>
-<li><b>Fill in the four boxes at the top left</b> — what your bank debited, the freight,
-    customs duty, and any IGST paid at import. Leave a box at 0 if it does not apply.</li>
+<li><b>Fill in the boxes at the top left</b> — the gateway fee if any, what your bank debited,
+    the freight, customs duty, and any IGST paid at import. Leave a box at 0 if it does not apply.</li>
 <li><b>Drag the slider</b> to the profit margin you want. Every price updates at once.</li>
 <li>Prices land on <b>₹399, ₹999, ₹1,499</b> style figures automatically. That is the
     “round up to ₹100, then subtract ₹1” setting underneath the slider.</li>
@@ -980,6 +1011,9 @@ $1,298 adds ₹23.50 per dollar. So a $2 battery lands at 2 × (99.83 + 23.50) =
     <b>↺</b> appears to hand it back to the slider.</li>
 <li>The <b>Margin</b> column is colour-coded: green means it is at or near your target,
     amber is slipping, red is well under.</li>
+<li>The <b>Remarks</b> column at the end of the table is free text — a place to note an
+    assumption (“qty estimated, invoice was illegible”) against the row it applies to. It
+    travels with the row into the Full CSV and the Excel backup.</li>
 </ul>
 
 <h3>Different GST on different products</h3>
@@ -989,6 +1023,13 @@ at 18%; leave a row blank and it follows the rate in the box at the top. The sam
 target margin, so one category can price at 45% while everything else follows the slider.</p>
 <p>You can also set both in the import file, via the <code>gst_pct</code> and
 <code>target_margin_pct</code> columns.</p>
+
+<h3>What's the Connector column?</h3>
+<p>Just a label — which physical plug the battery uses (<b>XT30</b>, <b>XT60</b>, <b>A30</b>,
+…), plus a colour that's often used to mark HV (high-voltage) cells apart from standard ones.
+It's descriptive only: it doesn't feed into cost, price, or margin anywhere. It's there so two
+otherwise-identical-looking SKUs can be told apart at a glance, and it carries through to the
+Full CSV export.</p>
 
 <h3>Getting your own products in</h3>
 <ol>
@@ -1001,9 +1042,10 @@ target margin, so one category can price at 45% while everything else follows th
 <h3>Getting results out</h3>
 <table>
 <tr><th>Button</th><th>What you get</th></tr>
-<tr><td><b>SKU + Price ↓</b></td><td>A two-column file, SKU and price. This is the one you
-  upload to the store.</td></tr>
-<tr><td><b>Copy</b></td><td>The same, on your clipboard, for pasting into a sheet.</td></tr>
+<tr><td><b>SKU + Price ↓</b></td><td>SKU, product name, and price. The name is there so you can
+  eyeball the list; the SKU is what the store actually matches on. This is the one you upload
+  to the store.</td></tr>
+<tr><td><b>Copy</b></td><td>The same three columns, on your clipboard, for pasting into a sheet.</td></tr>
 <tr><td><b>Excel backup ↓</b></td><td>A real Excel file that still calculates. Change the
   blue cells in Excel and the prices move. Keep it as your record of the shipment.</td></tr>
 <tr><td><b>Full CSV ↓</b></td><td>Every column, for your own analysis.</td></tr>
@@ -1067,6 +1109,7 @@ const SCHEMA = [
   { key:"targetPct", header:"target_margin_pct", req:false, aliases:["target_margin_pct","target margin","margin %","target %"] },
   { key:"gstPct",    header:"gst_pct",           req:false, aliases:["gst_pct","gst %","gst rate","tax %"] },
   { key:"price",     header:"price",             req:false, aliases:["price","store price","regular price","selling price","mrp"] },
+  { key:"remarks",   header:"remarks",           req:false, aliases:["remarks","notes","comment","comments","assumption","assumptions"] },
 ];
 
 const dl = (data, name, mime) => {
@@ -1089,8 +1132,8 @@ function flash(sel, msg){
 /* ---------- template: the schema, with two worked example rows ---------- */
 $("#btn-template").addEventListener("click", () => {
   const head = SCHEMA.map(s => s.header);
-  const ex1 = ["GNB3001S80PHV", 5, 2.00, "300mAh 1S1P 3.8V HV 80C", "Black A30", "", "", ""];
-  const ex2 = ["GNB22003S110A", 5, 16.20, "2200mAh 3S1P 11.1V 110C", "Yellow XT60U-F", 40, 18, ""];
+  const ex1 = ["GNB3001S80PHV", 5, 2.00, "300mAh 1S1P 3.8V HV 80C", "Black A30", "", "", "", ""];
+  const ex2 = ["GNB22003S110A", 5, 16.20, "2200mAh 3S1P 11.1V 110C", "Yellow XT60U-F", 40, 18, "", "Qty is an estimate — invoice was illegible"];
   dl("﻿" + csv([head, ex1, ex2]), "import-template.csv", "text/csv;charset=utf-8");
   flash("#btn-template", "Downloaded ✓");
 });
@@ -1151,6 +1194,7 @@ function doImport(rows){
       targetPct: optNum(cell(r, "targetPct")),
       gstPct:    optNum(cell(r, "gstPct")),
       price:     optNum(cell(r, "price")),
+      remarks:   cell(r, "remarks"),
     });
   });
 
@@ -1172,31 +1216,31 @@ function doImport(rows){
   flash("#btn-import", prods.length + " in ✓");
 }
 
-/* ---------- export: SKU + price, the file you actually run ---------- */
+/* ---------- export: SKU + name + price, the file you actually run ---------- */
 $("#btn-pricelist").addEventListener("click", () => {
-  const rows = [["sku", "price"]];
-  compute().rows.forEach(r => { if(r.sku) rows.push([r.sku, Math.round(r.price)]); });
+  const rows = [["sku", "name", "price"]];
+  compute().rows.forEach(r => { if(r.sku) rows.push([r.sku, r.name, Math.round(r.price)]); });
   dl("﻿" + csv(rows), "price-list-" + stamp() + ".csv", "text/csv;charset=utf-8");
   flash("#btn-pricelist", "Downloaded ✓");
 });
 
 $("#btn-copy").addEventListener("click", async () => {
   const txt = compute().rows.filter(r => r.sku)
-    .map(r => r.sku + "\t" + Math.round(r.price)).join("\n");
+    .map(r => r.sku + "\t" + r.name + "\t" + Math.round(r.price)).join("\n");
   try{ await navigator.clipboard.writeText(txt); flash("#btn-copy", "Copied ✓"); }
   catch(e){ alert(txt); }
 });
 
 /* ---------- export: the full working ---------- */
-const CSV_HEAD = ["Product","SKU","Connector","Qty","Cost USD","FX INR","Freight+Duty","ITC",
-                  "Landed","Suggested","Store Price","Net GST","P/L unit","Margin %","P/L total"];
+const CSV_HEAD = ["Product","SKU","Connector","Qty","Cost USD","FX INR","PayPal Fee INR","Freight+Duty","ITC",
+                  "Landed","Suggested","Store Price","Net GST","P/L unit","Margin %","P/L total","Remarks"];
 
 $("#btn-export").addEventListener("click", () => {
   const r2 = v => Math.round(v * 100) / 100;
   const rows = [CSV_HEAD];
-  compute().rows.forEach(r => rows.push([r.name, r.sku, r.conn, r.qty, r.cost, r2(r.inr),
+  compute().rows.forEach(r => rows.push([r.name, r.sku, r.conn, r.qty, r.cost, r2(r.inr), r2(r.paypal),
     r2(r.duty), r2(r.itc), r2(r.landed), Math.round(r.suggested), Math.round(r.price),
-    r2(r.netGst), r2(r.pl), r2(r.margin * 100), Math.round(r.pl * r.qty)]));
+    r2(r.netGst), r2(r.pl), r2(r.margin * 100), Math.round(r.pl * r.qty), r.remarks || ""]));
   dl("﻿" + csv(rows), "landing-cost-" + stamp() + ".csv", "text/csv;charset=utf-8");
   flash("#btn-export", "Downloaded ✓");
 });
@@ -1369,7 +1413,7 @@ const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <border><left/><right/><top style="thin"><color rgb="FF9CA3AF"/></top><bottom/><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="23">
+<cellXfs count="24">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
 <xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>
@@ -1393,6 +1437,7 @@ const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xf numFmtId="167" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"/>
 <xf numFmtId="165" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
 <xf numFmtId="166" fontId="3" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+<xf numFmtId="167" fontId="3" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -1400,12 +1445,12 @@ const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 /* ---- style shorthands ---- */
 const S = { title:1, muted:2, section:3, label:4, inINR:5, inPct:6, inNum:7,
             derived:8, head:9, text:10, int:11, usd:12, inr2:13, inr0:14, pct:15,
-            tTxt:16, tInt:17, tInr:18, tPct:19, tUsd:20, price:21 };
+            tTxt:16, tInt:17, tInr:18, tPct:19, tUsd:20, price:21, inUSD:23 };
 
 function buildXlsx(){
   const m = compute();
   const rows = m.rows;
-  const H = 20, first = H + 1, last = H + rows.length, tot = last + 1;
+  const H = 22, first = H + 1, last = H + rows.length, tot = last + 1;
 
   /* ---------- sheet 1: the model ---------- */
   const sh = [];
@@ -1420,44 +1465,48 @@ function buildXlsx(){
   put(6,  [T("Freight / shipping (INR)",   S.label), N(num(state.shipping),   S.inINR)]);
   put(7,  [T("Customs duty / BCD (INR)",   S.label), N(num(state.customs),    S.inINR)]);
   put(8,  [T("Import IGST (INR)",          S.label), N(num(state.igst),       S.inINR)]);
-  put(9,  [T("Output GST rate",            S.label), N(num(state.gstRate)/100,     S.inPct)]);
-  put(10, [T("Target store margin",        S.label), N(num(state.targetMargin)/100, S.inPct)]);
-  put(11, [T("Round price up to nearest",  S.label), N(num(state.roundTo),  S.inNum)]);
-  put(12, [T("Charm offset (subtract)",    S.label), N(num(state.charmOff), S.inNum)]);
+  put(9,  [T("PayPal / gateway fee (USD)", S.label), N(num(state.paypalFeeUsd), S.inUSD)]);
+  put(10, [T("Output GST rate",            S.label), N(num(state.gstRate)/100,     S.inPct)]);
+  put(11, [T("Target store margin",        S.label), N(num(state.targetMargin)/100, S.inPct)]);
+  put(12, [T("Round price up to nearest",  S.label), N(num(state.roundTo),  S.inNum)]);
+  put(13, [T("Charm offset (subtract)",    S.label), N(num(state.charmOff), S.inNum)]);
 
-  put(14, [T("DERIVED — allocation rates", S.section)]);
-  put(15, [T("Invoice total (USD)",        S.label), F(`SUMPRODUCT($D$${first}:$D$${last},$E$${first}:$E$${last})`, S.usd)]);
-  put(16, [T("Effective FX (INR per $)",   S.label), F(`IF($B$15=0,0,$B$5/$B$15)`,          S.derived)]);
-  put(17, [T("Freight + duty per $",       S.label), F(`IF($B$15=0,0,($B$6+$B$7)/$B$15)`,   S.derived)]);
-  put(18, [T("ITC per $",                  S.label), F(`IF($B$15=0,0,$B$8/$B$15)`,          S.derived)]);
+  put(15, [T("DERIVED — allocation rates", S.section)]);
+  put(16, [T("Invoice total (USD)",        S.label), F(`SUMPRODUCT($D$${first}:$D$${last},$E$${first}:$E$${last})`, S.usd)]);
+  put(17, [T("Effective FX (INR per $)",   S.label), F(`IF($B$16=0,0,$B$5/($B$16+$B$9))`,   S.derived)]);
+  put(18, [T("PayPal fee per $",           S.label), F(`IF($B$16=0,0,($B$9*$B$17)/$B$16)`,  S.derived)]);
+  put(19, [T("Freight + duty per $",       S.label), F(`IF($B$16=0,0,($B$6+$B$7)/$B$16)`,   S.derived)]);
+  put(20, [T("ITC per $",                  S.label), F(`IF($B$16=0,0,$B$8/$B$16)`,          S.derived)]);
 
   const HEADERS = ["Product","SKU","Connector","Qty","Cost $","Target %","GST %",
-                   "FX INR","Freight+Duty","ITC","Landed","Suggested","Store Price",
-                   "Output GST","Net GST","P/L unit","Margin","P/L total"];
+                   "FX INR","PayPal INR","Freight+Duty","ITC","Landed","Suggested","Store Price",
+                   "Output GST","Net GST","P/L unit","Margin","P/L total","Remarks"];
   put(H, HEADERS.map(h => T(h, S.head)));
 
   rows.forEach((r, i) => {
     const n = first + i;
     // per-row target / GST: written only when the row overrides the global
-    const tgtRef = `IF(F${n}="",$B$10,F${n})`;
-    const gstRef = `IF(G${n}="",$B$9,G${n})`;
+    const tgtRef = `IF(F${n}="",$B$11,F${n})`;
+    const gstRef = `IF(G${n}="",$B$10,G${n})`;
     put(n, [
       T(r.name, S.text), T(r.sku, S.text), T(r.conn, S.text),
       N(r.qty, S.int), N(r.cost, S.usd),
       r.targetPct == null ? B(S.inPct) : N(num(r.targetPct)/100, S.inPct),
       r.gstPct    == null ? B(S.inPct) : N(num(r.gstPct)/100,    S.inPct),
-      F(`$E${n}*$B$16`, S.inr2),
       F(`$E${n}*$B$17`, S.inr2),
       F(`$E${n}*$B$18`, S.inr2),
-      F(`H${n}+I${n}+J${n}`, S.inr2),
-      F(`CEILING(K${n}/(1-MIN(0.99,${tgtRef})),$B$11)-$B$12`, S.inr0),
+      F(`$E${n}*$B$19`, S.inr2),
+      F(`$E${n}*$B$20`, S.inr2),
+      F(`H${n}+I${n}+J${n}+K${n}`, S.inr2),
+      F(`CEILING(L${n}/(1-MIN(0.99,${tgtRef})),$B$12)-$B$13`, S.inr0),
       // an overridden price is a hard number; otherwise it tracks the suggestion
-      r.overridden ? N(Math.round(num(r.price)), S.price) : F(`L${n}`, S.price),
-      F(`M${n}-M${n}/(1+${gstRef})`, S.inr2),
-      F(`N${n}-J${n}`, S.inr2),
-      F(`M${n}-O${n}-K${n}`, S.inr2),
-      F(`IF(M${n}=0,0,P${n}/M${n})`, S.pct),
-      F(`P${n}*D${n}`, S.inr0),
+      r.overridden ? N(Math.round(num(r.price)), S.price) : F(`M${n}`, S.price),
+      F(`N${n}-N${n}/(1+${gstRef})`, S.inr2),
+      F(`O${n}-K${n}`, S.inr2),
+      F(`N${n}-P${n}-L${n}`, S.inr2),
+      F(`IF(N${n}=0,0,Q${n}/N${n})`, S.pct),
+      F(`Q${n}*D${n}`, S.inr0),
+      T(r.remarks || "", S.text),
     ]);
   });
 
@@ -1465,29 +1514,33 @@ function buildXlsx(){
     T(`TOTAL — ${rows.length} SKUs`, S.tTxt), T("", S.tTxt), T("", S.tTxt),
     F(`SUM(D${first}:D${last})`, S.tInt),
     F(`SUMPRODUCT(D${first}:D${last},E${first}:E${last})`, S.tUsd),
-    T("", S.tTxt), T("", S.tTxt), T("", S.tTxt), T("", S.tTxt), T("", S.tTxt),
-    F(`SUMPRODUCT(K${first}:K${last},D${first}:D${last})`, S.tInr),
+    T("", S.tTxt), T("", S.tTxt), T("", S.tTxt), T("", S.tTxt), T("", S.tTxt), T("", S.tTxt),
+    F(`SUMPRODUCT(L${first}:L${last},D${first}:D${last})`, S.tInr),
     T("", S.tTxt),
-    F(`SUMPRODUCT(M${first}:M${last},D${first}:D${last})`, S.tInr),
+    F(`SUMPRODUCT(N${first}:N${last},D${first}:D${last})`, S.tInr),
     T("", S.tTxt),
-    F(`SUMPRODUCT(O${first}:O${last},D${first}:D${last})`, S.tInr),
+    F(`SUMPRODUCT(P${first}:P${last},D${first}:D${last})`, S.tInr),
     T("", S.tTxt),
-    F(`IF(M${tot}=0,0,R${tot}/M${tot})`, S.tPct),
-    F(`SUM(R${first}:R${last})`, S.tInr),
+    F(`IF(N${tot}=0,0,S${tot}/N${tot})`, S.tPct),
+    F(`SUM(S${first}:S${last})`, S.tInr),
+    T("", S.tTxt),
   ]);
 
-  put(tot + 2, [T("Landed = cost$ × (FX + freight/$ + ITC/$).  Suggested = roundup(landed ÷ (1 − target margin)) − charm offset.  " +
+  put(tot + 2, [T("Landed = cost$×FX + cost$×PayPal-fee/$ + cost$×freight/$ + cost$×ITC/$, where FX = amount debited ÷ (invoice USD + PayPal fee USD) " +
+                  "is the true rate once the gateway's cut is backed out, and PayPal-fee/$ spreads that fee's INR cost across SKUs by value, the same way freight is.  " +
+                  "Suggested = roundup(landed ÷ (1 − target margin)) − charm offset.  " +
                   "Net GST = output GST − ITC.  P/L = price − net GST − landed.", S.muted)]);
 
-  const s1 = sheetXml(sh, [30,17,15,7,10,9,8,12,13,10,12,12,12,12,12,12,9,12]);
+  const s1 = sheetXml(sh, [30,17,15,7,10,9,8,12,12,13,10,12,12,12,12,12,12,9,12,22]);
 
   /* ---------- sheet 2: the price list, live-linked ---------- */
-  const p2 = [[T("sku", S.head), T("price", S.head)]];
+  const p2 = [[T("sku", S.head), T("name", S.head), T("price", S.head)]];
   rows.forEach((r, i) => p2.push([
     F(`Calculator!B${first + i}`, S.text),
-    F(`ROUND(Calculator!M${first + i},0)`, S.int),
+    F(`Calculator!A${first + i}`, S.text),
+    F(`ROUND(Calculator!N${first + i},0)`, S.int),
   ]));
-  const s2 = sheetXml(p2, [22, 12]);
+  const s2 = sheetXml(p2, [22, 30, 12]);
 
   /* ---------- package ---------- */
   const files = [
