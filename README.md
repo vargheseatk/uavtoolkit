@@ -1,12 +1,14 @@
 # UAV Store Toolkit
 
-Two tools in one page, no build step, no dependencies, no backend.
+Three tools in one page, no build step, no runtime dependencies, no backend.
 
 - **Pricing** — replaces the `GNB.xlsx` costing sheet. Enter what a shipment actually cost
   you and it works out the landed cost of every SKU and the selling price that hits your
   target margin, with a live slider.
 - **Listings** — paste product links, get a WooCommerce import CSV and every image renamed
   with your store name. A browser port of `import_products.py`.
+- **Labels** — upload a SKU + Quantity sheet, get a print-ready PDF of QR labels sized for a
+  thermal printer, one page per physical label.
 
 There's an **? How this works** button in the top right that explains the whole thing in
 plain English — start there if you're new to it.
@@ -166,3 +168,53 @@ you to find it.
   profit tile here, and it works.
 - Customs duty was allocated through the same per-USD rate as freight, so the two share one
   "freight + duty" column. Enter them separately; they are allocated identically.
+
+---
+
+# Labels tab
+
+Upload a spreadsheet, get back a PDF of QR labels — one page per physical label, sized to a
+thermal printer's label stock.
+
+### 1. Import schema
+
+Required: `sku`, `qty`. Both `.xlsx` and `.csv` work; column order and case don't matter, and
+common aliases are recognised (`Item Code`, `Qty to Print`, …). Click **Template** for a
+ready-made file.
+
+### 2. Size and text
+
+Pick a preset (50×30mm is the common default) or enter your own width/height in millimetres.
+**Before printing, set your printer driver's paper size to match** — the PDF page *is* the
+label, exactly that size, so the driver must not scale or fit-to-page. A long SKU shrinks its
+font automatically rather than running off the edge.
+
+### 3. Generate
+
+One click. A SKU printed 500 times shares a single QR image and a single set of drawing
+instructions across all 500 pages — a large batch stays a small, fast file rather than 500x
+the work.
+
+## How it's built
+
+No PDF or QR library — three things are hand-rolled or vendored, for the same reason the
+Pricing tab's Excel export and the Listings tab's ZIP writer are: a real dependency would be
+more code and more trust than writing exactly what's needed.
+
+- **The `.xlsx` reader** parses the ZIP central directory and SpreadsheetML XML directly.
+  DEFLATE-compressed entries (what Excel actually produces) are inflated with the browser's
+  native `DecompressionStream('deflate-raw')` — no inflate implementation to get wrong.
+- **The QR encoder** is vendored, not hand-written (see `vendor/README.md`) — Reed-Solomon
+  error correction is exactly the kind of code that looks right and quietly produces labels
+  that don't scan.
+- **The PDF writer** emits the classic object/xref/trailer structure directly: one Image
+  XObject and one content stream per *unique* SKU, referenced by many lightweight Page
+  objects — not duplicated per label.
+
+Every stage was checked by producing real output and decoding it back independently, not by
+reading the code and assuming it's right: the QR encoder's output was scanned with OpenCV
+across ASCII, Unicode, and edge-case strings; the `.xlsx` reader was run against files
+produced by both openpyxl (inline strings) and hand-built shared-strings XML, matching
+real-world Excel/Google Sheets output; and finished PDFs were opened with two independent
+parsers (pypdf, PyMuPDF), rendered at print resolution, and every embedded QR decoded back to
+confirm it matches the source SKU and prints in the right quantity.

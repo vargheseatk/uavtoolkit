@@ -233,6 +233,7 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
 <nav class="tabs">
   <button class="tab on" data-tab="pricing">Pricing</button>
   <button class="tab" data-tab="listings">Listings</button>
+  <button class="tab" data-tab="labels">Labels</button>
 </nav>
 
 <div id="tab-pricing">
@@ -460,6 +461,95 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
   </footer>
 </div><!-- /tab-listings -->
 
+<!-- ============================ LABELS ============================ -->
+<div id="tab-labels" hidden>
+
+  <section class="card">
+    <h2>1 · SKU + Quantity sheet</h2>
+    <div class="body">
+      <div class="actions">
+        <button id="btn-label-template">Template</button>
+        <button id="btn-label-upload" class="primary">Upload .xlsx or .csv</button>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        Needs a <code>SKU</code> column and a <code>Quantity</code> column — headers can be in
+        any order, and near-misses like "Item Code" or "Qty to Print" are recognised.
+      </div>
+      <div id="labelSummary" class="tiles" hidden style="margin-top:14px">
+        <div class="tile"><dt>Rows read</dt><dd id="ls-rows">0</dd></div>
+        <div class="tile ok"><dt>Labels to print</dt><dd id="ls-labels">0</dd></div>
+        <div class="tile"><dt>Unique SKUs</dt><dd id="ls-skus">0</dd></div>
+        <div class="tile"><dt>Skipped rows</dt><dd id="ls-skipped">0</dd></div>
+      </div>
+      <div id="labelLog" class="log" hidden></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2 · Label size &amp; text</h2>
+    <div class="body">
+      <div class="fields">
+        <label class="f"><span>Preset</span>
+          <select id="labelPreset">
+            <option value="50x30">50 × 30 mm — common</option>
+            <option value="40x30">40 × 30 mm</option>
+            <option value="30x20">30 × 20 mm — small parts</option>
+            <option value="58x40">58 × 40 mm</option>
+            <option value="custom">Custom…</option>
+          </select></label>
+        <label class="f"><span>Width <b>mm</b></span>
+          <input type="number" id="labelWidth" step="1" min="5"></label>
+        <label class="f"><span>Height <b>mm</b></span>
+          <input type="number" id="labelHeight" step="1" min="5"></label>
+        <label class="f"><span>Margin <b>mm</b></span>
+          <input type="number" id="labelMargin" step="0.5" min="0"></label>
+      </div>
+      <div class="fields" style="margin-top:11px">
+        <label class="f"><span>Font size <b>pt</b></span>
+          <input type="number" id="labelFontSize" step="0.5" min="4" max="24"></label>
+        <label class="f" style="align-self:end">
+          <span style="visibility:hidden">.</span>
+          <span style="display:flex;gap:14px;padding-top:6px">
+            <span style="display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted)">
+              <input type="checkbox" id="labelShowText" style="width:auto"> Print SKU text</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted)">
+              <input type="checkbox" id="labelBold" style="width:auto"> Bold</span>
+          </span>
+        </label>
+      </div>
+      <div class="hint" style="margin-top:10px">
+        Long SKUs shrink to fit automatically rather than run off the label edge.
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3 · Generate</h2>
+    <div class="body">
+      <div class="actions">
+        <button id="btn-label-generate" class="primary">Generate PDF</button>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <strong>What this does</strong> — reads your sheet, and for every row prints
+    <em>Quantity</em> copies of a label for that SKU: a QR code encoding the SKU, with the SKU
+    printed underneath. One PDF page per physical label, sized to fit your printer's label
+    stock — set your printer driver's paper size to match before printing.
+    <br><br>
+    <strong>Built for scale</strong> — a SKU printed 500 times shares one QR image and one set
+    of print instructions across all 500 pages, so a large batch stays a small file and
+    generates in milliseconds.
+    <br><br>
+    <strong>Verified, not assumed</strong> — the QR encoder is Kazuhiko Arase's widely-used
+    <code>qrcode-generator</code> (vendored in <code>vendor/</code>, MIT licensed), not
+    hand-written. Every stage of this feature — the spreadsheet reader, the QR encoding, and
+    the PDF itself — was checked by rendering real output and decoding it back with an
+    independent scanner, not just by looking right.
+  </footer>
+</div><!-- /tab-labels -->
+
 <!-- ============================ INFO ============================ -->
 <div id="infoBack" class="modal-back" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
@@ -472,6 +562,7 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
 </div>
 
 <input type="file" id="fileInput" accept=".csv,text/csv" hidden>
+<input type="file" id="labelFileInput" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
 </div>
 
 <script>
@@ -857,6 +948,7 @@ document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () =>
   document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
   $("#tab-pricing").hidden  = t.dataset.tab !== "pricing";
   $("#tab-listings").hidden = t.dataset.tab !== "listings";
+  $("#tab-labels").hidden   = t.dataset.tab !== "labels";
 }));
 
 /* ---------- info ---------- */
@@ -934,6 +1026,22 @@ Cloudflare-protected stores) don't allow that, by design — no page can read ar
 those, click <b>Download script (.zip)</b> on that tab: it's the exact same tool, running on
 your PC instead, with three plain-English steps to set it up. If you paste a link the browser
 can't reach, that card lights up on its own.</p>
+
+<h3>Labels tab</h3>
+<p>Turns a stock-take or a purchase order into printable QR labels. Upload a spreadsheet with
+a <b>SKU</b> column and a <b>Quantity</b> column, and it prints that many copies of a QR label
+for each SKU — a QR code holding the SKU, with the SKU written underneath so it's readable at
+a glance too.</p>
+<p>Click <b>Template</b> first if you're starting from scratch. <b>.xlsx and .csv both work</b> —
+column order doesn't matter, and near-miss headers like "Item Code" or "Qty to Print" are
+recognised the same way the Pricing tab's import does.</p>
+<p>Pick a <b>label size preset</b> that matches your printer's stock, or enter your own width
+and height in millimetres under Custom. Before you print, set your printer driver's paper
+size to the same dimensions — the PDF is exactly that size per label, one label per page, so
+the driver needs to know not to scale or fit-to-page.</p>
+<p>A SKU printed hundreds of times doesn't cost hundreds of times the file size — every label
+for the same SKU shares one QR image and one set of drawing instructions, so a 500-label batch
+stays a small, fast-to-generate file.</p>
 `;
 $("#infoBody").innerHTML = INFO;
 const showInfo = on => { $("#infoBack").hidden = !on;
@@ -1429,8 +1537,10 @@ syncInputs();
 render();
 
 /* shared with listings.js */
-window.APP = { $, num, dl, stamp, csv, csvCell, flash, zipStore };
+window.APP = { $, num, dl, stamp, csv, csvCell, flash, zipStore, parseCsv };
 </script>
 <script src="listings.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="labels.js"></script>
 </body>
 </html>
