@@ -234,6 +234,7 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
   <button class="tab on" data-tab="pricing">Pricing</button>
   <button class="tab" data-tab="listings">Listings</button>
   <button class="tab" data-tab="labels">Labels</button>
+  <button class="tab" data-tab="sync">Sync</button>
 </nav>
 
 <div id="tab-pricing">
@@ -250,6 +251,16 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
   <button id="btn-reset" class="danger">Sample data</button>
 </div>
 
+<div class="card" style="margin-bottom:14px">
+  <div class="body" style="padding:10px 14px">
+    <label class="f" style="margin:0"><span>Remarks <b>(this shipment)</b></span>
+      <textarea id="remarks" rows="2" placeholder="Any assumption worth noting — e.g. &quot;customs figure is an estimate, receipt pending&quot;"
+        style="width:100%;font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel-2);color:var(--ink);resize:vertical"></textarea>
+      <div class="hint">One note for the whole shipment — appears at the bottom of the Excel backup and Full CSV.</div>
+    </label>
+  </div>
+</div>
+
 <div class="cols">
 
   <!-- ===== assumptions ===== -->
@@ -259,7 +270,7 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
       <div class="fields">
         <label class="f"><span>Invoice total <b>(USD)</b></span>
           <input type="text" id="totalUsd" readonly tabindex="-1">
-          <div class="hint">Σ cost × qty, from the table</div></label>
+          <div class="hint">Σ cost × qty from the table, plus the gateway fee below</div></label>
 
         <label class="f"><span>PayPal / gateway fee <b>($)</b></span>
           <input type="number" id="paypalFeeUsd" step="0.01" min="0">
@@ -555,6 +566,81 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
   </footer>
 </div><!-- /tab-labels -->
 
+<!-- ============================ SYNC ============================ -->
+<div id="tab-sync" hidden>
+
+  <section class="card">
+    <h2>1 · Your current WooCommerce stock</h2>
+    <div class="body">
+      <div class="actions">
+        <button id="btn-sync-upload" class="primary">Upload WooCommerce export</button>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        From WooCommerce: <b>Products → Export</b> (or Products → All Products → Export).
+        Needs a <code>SKU</code> column and a <code>Stock</code> column — the exact columns
+        WooCommerce's own export already produces, so the file you download drops straight in.
+      </div>
+      <div id="syncUploadSummary" class="tiles" hidden style="margin-top:14px">
+        <div class="tile"><dt>Products in file</dt><dd id="su-rows">0</dd></div>
+        <div class="tile"><dt>With a stock figure</dt><dd id="su-stocked">0</dd></div>
+      </div>
+      <div id="syncUploadLog" class="log" hidden></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2 · Match against this shipment</h2>
+    <div class="body">
+      <div class="hint">
+        Uses the SKU, quantity, and calculated price from the <b>Pricing</b> tab — reload that
+        tab first if you've just changed something there.
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button id="btn-sync-match" class="primary">Match</button>
+      </div>
+      <div id="syncMatchSummary" class="tiles" hidden style="margin-top:14px">
+        <div class="tile ok"><dt>Will update</dt><dd id="sm-matched">0</dd></div>
+        <div class="tile bad"><dt>Not in WooCommerce yet</dt><dd id="sm-new">0</dd></div>
+        <div class="tile"><dt>Total SKUs this shipment</dt><dd id="sm-total">0</dd></div>
+      </div>
+      <div class="tablewrap" style="margin-top:12px"><table id="syncPreviewTbl"></table></div>
+    </div>
+  </section>
+
+  <section class="card" id="syncResultCard" hidden>
+    <h2>3 · Export</h2>
+    <div class="body">
+      <div class="actions">
+        <button id="btn-sync-update" class="primary">Update sheet ↓</button>
+        <button id="btn-sync-new">New SKUs to list ↓</button>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        <b>Update sheet</b> uploads straight back into WooCommerce's <b>Products → Import</b>
+        with <em>"Update existing products"</em> ticked — it matches by SKU and only touches
+        Stock and Regular price. <b>New SKUs to list</b> is informational: those products don't
+        exist in WooCommerce yet, so give that file to the <b>Listings</b> tab or list them by
+        hand — this sheet on its own won't create them.
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <strong>What this does</strong> — cross-references this shipment's SKUs against your
+    current WooCommerce inventory, so restocking an existing product adds the newly received
+    quantity to what's already on the shelf rather than overwriting it, and prices come
+    straight from the Pricing tab's calculation.
+    <br><br>
+    <strong>Nothing is uploaded automatically</strong> — this only ever produces a CSV for you
+    to review and upload yourself via WooCommerce's own importer. The app never talks to your
+    store directly.
+    <br><br>
+    <strong>Column names match WooCommerce exactly</strong> — <code>SKU</code>,
+    <code>Stock</code>, <code>Regular price</code>, <code>In stock?</code> are WooCommerce's
+    own CSV field names (confirmed against its importer source), so the file needs no manual
+    column mapping on the way back in.
+  </footer>
+</div><!-- /tab-sync -->
+
 <!-- ============================ INFO ============================ -->
 <div id="infoBack" class="modal-back" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
@@ -568,6 +654,7 @@ footer code{font-family:var(--mono);font-size:11px;background:var(--panel);paddi
 
 <input type="file" id="fileInput" accept=".csv,text/csv" hidden>
 <input type="file" id="labelFileInput" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+<input type="file" id="syncFileInput" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
 </div>
 
 <script>
@@ -626,11 +713,12 @@ const defaultState = () => ({
   targetMargin: 33,
   roundTo: 100,
   charmOff: 1,
+  remarks: "",
   tiers: [10, 20, 30],
   showTiers: false,
   showPerRow: false,
   products: SEED_PRODUCTS.map(([name, sku, conn, qty, cost]) =>
-    ({ name, sku, conn, qty, cost, price: null, targetPct: null, gstPct: null, remarks: "" }))
+    ({ name, sku, conn, qty, cost, price: null, targetPct: null, gstPct: null }))
 });
 
 const KEY = "landing-calc-v1";
@@ -715,7 +803,8 @@ function compute(){
   }), { qty:0, landed:0, rev:0, gst:0, pl:0 });
   totals.margin = totals.rev ? totals.pl / totals.rev : 0;
 
-  return { rows, totals, totalUsd, fx, paypalPU, freightPU, itcPU };
+  return { rows, totals, totalUsd, invoiceTotalUsd: totalUsd + paypalFeeUsd,
+           fx, paypalPU, freightPU, itcPU };
 }
 
 /* ------------------------------------------------------------------ *
@@ -757,7 +846,6 @@ const COLS = [
   { k:"pl",    h:"P/L unit" },
   { k:"margin",h:"Margin" },
   { k:"plq",   h:"P/L × qty" },
-  { k:"remarks", h:"Remarks", cls:"l dim", sep:true },
   { k:"del",   h:"" },
 ];
 
@@ -766,11 +854,11 @@ function render(){
   const target = num(state.targetMargin) / 100;
   const q = $("#search").value.trim().toLowerCase();
   const visible = q
-    ? m.rows.filter(r => (r.name + " " + r.sku + " " + r.conn + " " + (r.remarks||"")).toLowerCase().includes(q))
+    ? m.rows.filter(r => (r.name + " " + r.sku + " " + r.conn).toLowerCase().includes(q))
     : m.rows;
 
   // --- assumption + derived readouts
-  $("#totalUsd").value = "$" + m.totalUsd.toFixed(2);
+  $("#totalUsd").value = "$" + m.invoiceTotalUsd.toFixed(2);
   $("#d-fx").textContent      = "₹" + m.fx.toFixed(2);
   $("#d-paypal").textContent  = "₹" + m.paypalPU.toFixed(2);
   $("#d-freight").textContent = "₹" + m.freightPU.toFixed(2);
@@ -831,9 +919,6 @@ function render(){
         case "pl":     return `<td class="num" style="color:${r.pl < 0 ? "var(--bad)" : "inherit"}">${money2(r.pl)}</td>`;
         case "margin": return `<td class="num">${marginPill(r.margin, r.tgt)}</td>`;
         case "plq":    return `<td class="num" style="font-weight:600;color:${r.pl < 0 ? "var(--bad)" : "var(--good)"}">${money(r.pl * r.qty)}</td>`;
-        case "remarks":
-          return `<td class="l${sep}"><input type="text" data-i="${r.i}" data-f="remarks" value="${esc(r.remarks || "")}"
-                    placeholder="e.g. assumed qty" style="text-align:left;width:100%;min-width:130px"></td>`;
         case "del":    return `<td><button class="reset-x" data-del="${r.i}" title="Delete row" style="color:var(--faint)">✕</button></td>`;
       }
       return "<td></td>";
@@ -866,6 +951,7 @@ const SIMPLE = ["paypalFeeUsd","inrDebited","shipping","customs","igst","gstRate
 
 function syncInputs(){
   SIMPLE.forEach(k => $("#" + k).value = state[k]);
+  $("#remarks").value = state.remarks || "";
   $("#marginSlider").value = state.targetMargin;
   $("#showTiers").checked = state.showTiers;
   $("#showPerRow").checked = state.showPerRow;
@@ -877,6 +963,11 @@ SIMPLE.forEach(k => $("#" + k).addEventListener("input", e => {
   state[k] = e.target.value === "" ? 0 : parseFloat(e.target.value);
   render(); save();
 }));
+
+$("#remarks").addEventListener("input", e => {
+  state.remarks = e.target.value;
+  save();
+});
 
 $("#marginSlider").addEventListener("input", e => {
   state.targetMargin = parseFloat(e.target.value);
@@ -905,7 +996,7 @@ $("#tbody").addEventListener("input", e => {
   if(!t.dataset.f) return;
   const r = state.products[+t.dataset.i];
   const f = t.dataset.f;
-  if(f === "name" || f === "remarks") r[f] = t.value;
+  if(f === "name") r[f] = t.value;
   else if(f === "price" || f === "targetPct" || f === "gstPct")
     r[f] = t.value === "" ? null : parseFloat(t.value);   // blank = fall back to global
   else r[f] = t.value === "" ? 0 : parseFloat(t.value);
@@ -940,7 +1031,7 @@ $("#tbody").addEventListener("click", e => {
 
 $("#btn-add").addEventListener("click", () => {
   state.products.push({ name:"New product", sku:"", conn:"", qty:1, cost:0,
-                        price:null, targetPct:null, gstPct:null, remarks:"" });
+                        price:null, targetPct:null, gstPct:null });
   $("#search").value = "";
   render(); save();
   const last = document.querySelector("#tbody tr:last-child input");
@@ -971,6 +1062,7 @@ document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () =>
   $("#tab-pricing").hidden  = t.dataset.tab !== "pricing";
   $("#tab-listings").hidden = t.dataset.tab !== "listings";
   $("#tab-labels").hidden   = t.dataset.tab !== "labels";
+  $("#tab-sync").hidden     = t.dataset.tab !== "sync";
 }));
 
 /* ---------- info ---------- */
@@ -1011,9 +1103,9 @@ freight is split by value. Leave it at 0 if you paid by bank transfer with no su
     <b>↺</b> appears to hand it back to the slider.</li>
 <li>The <b>Margin</b> column is colour-coded: green means it is at or near your target,
     amber is slipping, red is well under.</li>
-<li>The <b>Remarks</b> column at the end of the table is free text — a place to note an
-    assumption (“qty estimated, invoice was illegible”) against the row it applies to. It
-    travels with the row into the Full CSV and the Excel backup.</li>
+<li>The <b>Remarks</b> box above the table is one free-text note for the whole shipment —
+    e.g. “customs figure is an estimate, receipt pending.” It appears at the bottom of the
+    Excel backup and the Full CSV, not attached to any one row.</li>
 </ul>
 
 <h3>Different GST on different products</h3>
@@ -1084,6 +1176,24 @@ the driver needs to know not to scale or fit-to-page.</p>
 <p>A SKU printed hundreds of times doesn't cost hundreds of times the file size — every label
 for the same SKU shares one QR image and one set of drawing instructions, so a 500-label batch
 stays a small, fast-to-generate file.</p>
+
+<h3>Sync tab</h3>
+<p>Closes the loop after a shipment: your store already has stock of most things you just
+received, and this works out what the new total should be, and produces the file to update it.</p>
+<ol>
+<li>In WooCommerce: <b>Products → Export</b>, download it, and upload that file here.</li>
+<li>Click <b>Match</b>. Every SKU in the <b>Pricing</b> tab is checked against what you just
+    uploaded — <em>existing stock + the quantity you received this shipment</em> becomes the
+    new stock figure, and the price comes from the Pricing tab's calculation.</li>
+<li><b>Update sheet ↓</b> is what you upload back — <b>Products → Import</b> in WooCommerce,
+    with <em>"Update existing products"</em> ticked. It matches by SKU and only touches stock
+    and price; nothing else about the listing changes.</li>
+</ol>
+<p>Anything in this shipment that WooCommerce has never heard of gets flagged <b>NEW — not
+listed</b> rather than silently included — updating stock on a product that doesn't exist yet
+doesn't mean anything, so those go in a separate <b>New SKUs to list ↓</b> file instead, ready
+to hand to the <b>Listings</b> tab.</p>
+<p>Nothing is uploaded automatically. You always review the file and import it yourself.</p>
 `;
 $("#infoBody").innerHTML = INFO;
 const showInfo = on => { $("#infoBack").hidden = !on;
@@ -1109,7 +1219,6 @@ const SCHEMA = [
   { key:"targetPct", header:"target_margin_pct", req:false, aliases:["target_margin_pct","target margin","margin %","target %"] },
   { key:"gstPct",    header:"gst_pct",           req:false, aliases:["gst_pct","gst %","gst rate","tax %"] },
   { key:"price",     header:"price",             req:false, aliases:["price","store price","regular price","selling price","mrp"] },
-  { key:"remarks",   header:"remarks",           req:false, aliases:["remarks","notes","comment","comments","assumption","assumptions"] },
 ];
 
 const dl = (data, name, mime) => {
@@ -1132,8 +1241,8 @@ function flash(sel, msg){
 /* ---------- template: the schema, with two worked example rows ---------- */
 $("#btn-template").addEventListener("click", () => {
   const head = SCHEMA.map(s => s.header);
-  const ex1 = ["GNB3001S80PHV", 5, 2.00, "300mAh 1S1P 3.8V HV 80C", "Black A30", "", "", "", ""];
-  const ex2 = ["GNB22003S110A", 5, 16.20, "2200mAh 3S1P 11.1V 110C", "Yellow XT60U-F", 40, 18, "", "Qty is an estimate — invoice was illegible"];
+  const ex1 = ["GNB3001S80PHV", 5, 2.00, "300mAh 1S1P 3.8V HV 80C", "Black A30", "", "", ""];
+  const ex2 = ["GNB22003S110A", 5, 16.20, "2200mAh 3S1P 11.1V 110C", "Yellow XT60U-F", 40, 18, ""];
   dl("﻿" + csv([head, ex1, ex2]), "import-template.csv", "text/csv;charset=utf-8");
   flash("#btn-template", "Downloaded ✓");
 });
@@ -1194,7 +1303,6 @@ function doImport(rows){
       targetPct: optNum(cell(r, "targetPct")),
       gstPct:    optNum(cell(r, "gstPct")),
       price:     optNum(cell(r, "price")),
-      remarks:   cell(r, "remarks"),
     });
   });
 
@@ -1233,14 +1341,15 @@ $("#btn-copy").addEventListener("click", async () => {
 
 /* ---------- export: the full working ---------- */
 const CSV_HEAD = ["Product","SKU","Connector","Qty","Cost USD","FX INR","PayPal Fee INR","Freight+Duty","ITC",
-                  "Landed","Suggested","Store Price","Net GST","P/L unit","Margin %","P/L total","Remarks"];
+                  "Landed","Suggested","Store Price","Net GST","P/L unit","Margin %","P/L total"];
 
 $("#btn-export").addEventListener("click", () => {
   const r2 = v => Math.round(v * 100) / 100;
   const rows = [CSV_HEAD];
   compute().rows.forEach(r => rows.push([r.name, r.sku, r.conn, r.qty, r.cost, r2(r.inr), r2(r.paypal),
     r2(r.duty), r2(r.itc), r2(r.landed), Math.round(r.suggested), Math.round(r.price),
-    r2(r.netGst), r2(r.pl), r2(r.margin * 100), Math.round(r.pl * r.qty), r.remarks || ""]));
+    r2(r.netGst), r2(r.pl), r2(r.margin * 100), Math.round(r.pl * r.qty)]));
+  if(state.remarks && state.remarks.trim()){ rows.push([]); rows.push(["Remarks", state.remarks.trim()]); }
   dl("﻿" + csv(rows), "landing-cost-" + stamp() + ".csv", "text/csv;charset=utf-8");
   flash("#btn-export", "Downloaded ✓");
 });
@@ -1450,7 +1559,7 @@ const S = { title:1, muted:2, section:3, label:4, inINR:5, inPct:6, inNum:7,
 function buildXlsx(){
   const m = compute();
   const rows = m.rows;
-  const H = 22, first = H + 1, last = H + rows.length, tot = last + 1;
+  const H = 23, first = H + 1, last = H + rows.length, tot = last + 1;
 
   /* ---------- sheet 1: the model ---------- */
   const sh = [];
@@ -1472,15 +1581,16 @@ function buildXlsx(){
   put(13, [T("Charm offset (subtract)",    S.label), N(num(state.charmOff), S.inNum)]);
 
   put(15, [T("DERIVED — allocation rates", S.section)]);
-  put(16, [T("Invoice total (USD)",        S.label), F(`SUMPRODUCT($D$${first}:$D$${last},$E$${first}:$E$${last})`, S.usd)]);
-  put(17, [T("Effective FX (INR per $)",   S.label), F(`IF($B$16=0,0,$B$5/($B$16+$B$9))`,   S.derived)]);
-  put(18, [T("PayPal fee per $",           S.label), F(`IF($B$16=0,0,($B$9*$B$17)/$B$16)`,  S.derived)]);
-  put(19, [T("Freight + duty per $",       S.label), F(`IF($B$16=0,0,($B$6+$B$7)/$B$16)`,   S.derived)]);
-  put(20, [T("ITC per $",                  S.label), F(`IF($B$16=0,0,$B$8/$B$16)`,          S.derived)]);
+  put(16, [T("Item cost (USD)",            S.label), F(`SUMPRODUCT($D$${first}:$D$${last},$E$${first}:$E$${last})`, S.usd)]);
+  put(17, [T("Invoice total (USD)",        S.label), F(`$B$16+$B$9`, S.usd)]);
+  put(18, [T("Effective FX (INR per $)",   S.label), F(`IF($B$17=0,0,$B$5/$B$17)`,          S.derived)]);
+  put(19, [T("PayPal fee per $",           S.label), F(`IF($B$16=0,0,($B$9*$B$18)/$B$16)`,  S.derived)]);
+  put(20, [T("Freight + duty per $",       S.label), F(`IF($B$16=0,0,($B$6+$B$7)/$B$16)`,   S.derived)]);
+  put(21, [T("ITC per $",                  S.label), F(`IF($B$16=0,0,$B$8/$B$16)`,          S.derived)]);
 
   const HEADERS = ["Product","SKU","Connector","Qty","Cost $","Target %","GST %",
                    "FX INR","PayPal INR","Freight+Duty","ITC","Landed","Suggested","Store Price",
-                   "Output GST","Net GST","P/L unit","Margin","P/L total","Remarks"];
+                   "Output GST","Net GST","P/L unit","Margin","P/L total"];
   put(H, HEADERS.map(h => T(h, S.head)));
 
   rows.forEach((r, i) => {
@@ -1493,10 +1603,10 @@ function buildXlsx(){
       N(r.qty, S.int), N(r.cost, S.usd),
       r.targetPct == null ? B(S.inPct) : N(num(r.targetPct)/100, S.inPct),
       r.gstPct    == null ? B(S.inPct) : N(num(r.gstPct)/100,    S.inPct),
-      F(`$E${n}*$B$17`, S.inr2),
       F(`$E${n}*$B$18`, S.inr2),
       F(`$E${n}*$B$19`, S.inr2),
       F(`$E${n}*$B$20`, S.inr2),
+      F(`$E${n}*$B$21`, S.inr2),
       F(`H${n}+I${n}+J${n}+K${n}`, S.inr2),
       F(`CEILING(L${n}/(1-MIN(0.99,${tgtRef})),$B$12)-$B$13`, S.inr0),
       // an overridden price is a hard number; otherwise it tracks the suggestion
@@ -1506,7 +1616,6 @@ function buildXlsx(){
       F(`N${n}-P${n}-L${n}`, S.inr2),
       F(`IF(N${n}=0,0,Q${n}/N${n})`, S.pct),
       F(`Q${n}*D${n}`, S.inr0),
-      T(r.remarks || "", S.text),
     ]);
   });
 
@@ -1523,15 +1632,17 @@ function buildXlsx(){
     T("", S.tTxt),
     F(`IF(N${tot}=0,0,S${tot}/N${tot})`, S.tPct),
     F(`SUM(S${first}:S${last})`, S.tInr),
-    T("", S.tTxt),
   ]);
 
-  put(tot + 2, [T("Landed = cost$×FX + cost$×PayPal-fee/$ + cost$×freight/$ + cost$×ITC/$, where FX = amount debited ÷ (invoice USD + PayPal fee USD) " +
+  put(tot + 2, [T("Landed = cost$×FX + cost$×PayPal-fee/$ + cost$×freight/$ + cost$×ITC/$, where FX = amount debited ÷ invoice total (goods + PayPal fee) " +
                   "is the true rate once the gateway's cut is backed out, and PayPal-fee/$ spreads that fee's INR cost across SKUs by value, the same way freight is.  " +
                   "Suggested = roundup(landed ÷ (1 − target margin)) − charm offset.  " +
                   "Net GST = output GST − ITC.  P/L = price − net GST − landed.", S.muted)]);
 
-  const s1 = sheetXml(sh, [30,17,15,7,10,9,8,12,12,13,10,12,12,12,12,12,12,9,12,22]);
+  if(state.remarks && state.remarks.trim())
+    put(tot + 4, [T("Remarks: " + state.remarks.trim(), S.label)]);
+
+  const s1 = sheetXml(sh, [30,17,15,7,10,9,8,12,12,13,10,12,12,12,12,12,12,9,12]);
 
   /* ---------- sheet 2: the price list, live-linked ---------- */
   const p2 = [[T("sku", S.head), T("name", S.head), T("price", S.head)]];
@@ -1590,10 +1701,11 @@ syncInputs();
 render();
 
 /* shared with listings.js */
-window.APP = { $, num, dl, stamp, csv, csvCell, flash, zipStore, parseCsv };
+window.APP = { $, num, dl, stamp, csv, csvCell, flash, zipStore, parseCsv, compute };
 </script>
 <script src="listings.js"></script>
 <script src="vendor/qrcode.js"></script>
 <script src="labels.js"></script>
+<script src="sync.js"></script>
 </body>
 </html>

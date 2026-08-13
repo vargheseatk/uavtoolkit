@@ -1,6 +1,6 @@
 # UAV Store Toolkit
 
-Three tools in one page, no build step, no runtime dependencies, no backend.
+Four tools in one page, no build step, no runtime dependencies, no backend.
 
 - **Pricing** — replaces the `GNB.xlsx` costing sheet. Enter what a shipment actually cost
   you and it works out the landed cost of every SKU and the selling price that hits your
@@ -9,6 +9,8 @@ Three tools in one page, no build step, no runtime dependencies, no backend.
   with your store name. A browser port of `import_products.py`.
 - **Labels** — upload a SKU + Quantity sheet, get a print-ready PDF of QR labels sized for a
   thermal printer, one page per physical label.
+- **Sync** — upload your WooCommerce stock export, and get back a sheet that updates existing
+  SKUs' stock and price, while flagging anything not listed yet.
 
 There's an **? How this works** button in the top right that explains the whole thing in
 plain English — start there if you're new to it.
@@ -38,10 +40,12 @@ spreadsheet did.
 
 | Rate | Formula |
 |---|---|
-| Effective FX | amount debited ÷ (invoice USD + PayPal/gateway fee USD) |
-| PayPal fee per $ | (PayPal/gateway fee USD × effective FX) ÷ invoice USD |
-| Freight + duty per $ | (freight + customs) ÷ invoice USD |
-| ITC per $ | import IGST ÷ invoice USD |
+| Item cost (USD) | Σ cost × qty, from the table |
+| Invoice total (USD) | item cost + PayPal/gateway fee — the true dollar amount that got converted |
+| Effective FX | amount debited ÷ invoice total |
+| PayPal fee per $ | (PayPal/gateway fee USD × effective FX) ÷ item cost |
+| Freight + duty per $ | (freight + customs) ÷ item cost |
+| ITC per $ | import IGST ÷ item cost |
 
 Then, per unit:
 
@@ -88,10 +92,13 @@ case don't matter, and common aliases are recognised (`Product Code`, `Quantity`
 | `target_margin_pct` | optional | Prices *this* row at its own margin. **Blank = follow the slider.** |
 | `gst_pct` | optional | Per-row GST. Blank = the global rate. |
 | `price` | optional | A hard price. Blank = use the suggested price. |
-| `remarks` | optional | Free text — note an assumption against the row it applies to. |
 
 Import replaces the whole list, and shows you what it's about to do first — how many rows,
 what it's skipping and why, any duplicate SKUs.
+
+There's also a **Remarks** box above the table — one free-text note for the whole shipment
+(not per row), for flagging an assumption like "customs figure is an estimate." It shows up
+at the bottom of the Excel backup and the Full CSV.
 
 ### 2. Price it
 
@@ -237,3 +244,47 @@ produced by both openpyxl (inline strings) and hand-built shared-strings XML, ma
 real-world Excel/Google Sheets output; and finished PDFs were opened with two independent
 parsers (pypdf, PyMuPDF), rendered at print resolution, and every embedded QR decoded back to
 confirm it matches the source SKU and prints in the right quantity.
+
+---
+
+# Sync tab
+
+Closes the loop after a shipment. You already have some stock of most things you just
+received — this works out the *new* stock figure and produces the sheet to update it, without
+needing to hand-calculate "what's on the shelf plus what just arrived."
+
+### 1. Upload your WooCommerce export
+
+In WooCommerce: **Products → Export**. Needs a `SKU` column and a `Stock` column — which is
+exactly what WooCommerce's own export already has, so there's no reformatting.
+
+### 2. Match
+
+Every SKU in the **Pricing** tab is checked against the file you uploaded:
+
+| | |
+|---|---|
+| **Found in WooCommerce** | new stock = existing stock + this shipment's quantity. Price comes from the Pricing tab. |
+| **Not found** | flagged **NEW — not listed**, kept out of the update sheet entirely, and listed separately instead. |
+
+That split matters: writing a stock number against a product that doesn't exist yet in
+WooCommerce wouldn't do anything useful, so those SKUs never go anywhere near the update file.
+
+### 3. Export
+
+| Button | What you get |
+|---|---|
+| **Update sheet ↓** | `SKU`, `Stock`, `Regular price`, `In stock?` — WooCommerce's own column names, for the matched SKUs only. Upload via **Products → Import** with **"Update existing products"** ticked; it matches by SKU and only touches stock and price. |
+| **New SKUs to list ↓** | SKU, name, quantity, and suggested price for anything not yet in your store — informational, meant for the **Listings** tab or manual listing. |
+
+Nothing is uploaded automatically anywhere — this only produces a CSV for you to review and
+import yourself.
+
+## Getting the column names right
+
+The header names this tab reads and writes — `SKU`, `Stock`, `Regular price`, `In stock?` —
+aren't a guess. They're pulled directly from `WC_Product_CSV_Exporter::get_default_column_names()`
+in WooCommerce's own source, the same function that names the columns in the file you download
+from **Products → Export**. Confirmed separately that the importer matches and updates
+existing products by SKU (rather than erroring or creating a duplicate) when "Update existing
+products" is enabled — that's the whole mechanism this tab relies on.
